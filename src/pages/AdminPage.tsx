@@ -22,6 +22,7 @@ export default function AdminPage() {
   const { user, logOut } = useAuth();
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [loading, setLoading] = useState(true);
+  const [errorStatus, setErrorStatus] = useState<string | null>(null);
   const [filterDate, setFilterDate] = useState('');
 
   useEffect(() => {
@@ -37,9 +38,15 @@ export default function AdminPage() {
       });
       setReservations(data);
       setLoading(false);
+      setErrorStatus(null);
     }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'reservations');
       setLoading(false);
+      setErrorStatus("데이터를 불러오지 못했습니다. 우측 상단의 '관리자권한 부여' 버튼을 먼저 눌러주세요.");
+      try {
+        handleFirestoreError(error, OperationType.LIST, 'reservations');
+      } catch (e) {
+        // ignore thrown error
+      }
     });
 
     return () => unsubscribe();
@@ -141,6 +148,12 @@ export default function AdminPage() {
                     <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
                       <RefreshCcw className="w-6 h-6 animate-spin mx-auto mb-2" />
                       데이터를 불러오는 중입니다...
+                    </td>
+                  </tr>
+                ) : errorStatus ? (
+                  <tr>
+                    <td colSpan={7} className="px-6 py-12 text-center text-red-500 font-medium">
+                      {errorStatus}
                     </td>
                   </tr>
                 ) : filteredReservations.length === 0 ? (
