@@ -1,0 +1,69 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Boilerplate for validation helpers
+    function isSignedIn() { return request.auth != null; }
+    function isAdmin() { return isSignedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true; }
+    function isOwner(userId) { return request.auth.uid == userId; }
+    function existing() { return resource.data; }
+    function incoming() { return request.resource.data; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    match /users/{userId} {
+      function isValidUser(data) {
+        return data.size() >= 2
+          && data.keys().hasAll(['email', 'createdAt'])
+          && data.email is string && data.email.size() <= 150
+          && data.createdAt == request.time
+          && (!('isAdmin' in data) || data.isAdmin is bool);
+      }
+
+      function isValidUserUpdate(data) {
+        return incoming().diff(existing()).affectedKeys().hasOnly(['isAdmin']) 
+          && (!('isAdmin' in incoming()) || incoming().isAdmin is bool);
+      }
+
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isValidId(userId) && isOwner(userId) && isValidUser(incoming()) && !('isAdmin' in incoming());
+      // Allow the specific bootstrapping user to update their own document to become admin
+      allow update: if isValidId(userId) && (isAdmin() || (isOwner(userId) && request.auth.token.email == "choihj2162@gmail.com")) && isValidUserUpdate(incoming());
+      allow delete: if false;
+    }
+
+    match /reservations/{reservationId} {
+      function isValidReservation(data) {
+        return data.size() >= 7 && data.size() <= 9
+          && data.keys().hasAll(['userId', 'name', 'phone', 'date', 'time', 'status', 'createdAt'])
+          && data.userId is string && data.userId == request.auth.uid
+          && data.name is string && data.name.size() <= 100
+          && data.phone is string && data.phone.size() <= 20
+          && data.date is string && data.date.size() <= 20
+          && data.time is string && data.time.size() <= 10
+          && data.status is string && data.status in ['대기', '완료', '취소']
+          && (!('guests' in data) || (data.guests is string && data.guests.size() <= 10))
+          && (!('inquiry' in data) || (data.inquiry is string && data.inquiry.size() <= 1000))
+          && data.createdAt == request.time;
+      }
+
+      function isValidReservationUpdate(data) {
+         return incoming().diff(existing()).affectedKeys().hasOnly(['status', 'date', 'time'])
+           && (!('status' in incoming()) || incoming().status in ['대기', '완료', '취소'])
+           && (!('date' in incoming()) || (incoming().date is string && incoming().date.size() <= 20))
+           && (!('time' in incoming()) || (incoming().time is string && incoming().time.size() <= 10));
+      }
+
+      allow get: if isValidId(reservationId) && (isOwner(existing().userId) || isAdmin());
+      // Admin can list all, User can list only theirs
+      allow list: if isAdmin() || (isSignedIn() && existing().userId == request.auth.uid);
+      allow create: if isValidId(reservationId) && isSignedIn() && isValidReservation(incoming());
+      allow update: if isValidId(reservationId) && (isAdmin() || isOwner(existing().userId)) && isValidReservationUpdate(incoming());
+      allow delete: if false;
+    }
+  }
+}
